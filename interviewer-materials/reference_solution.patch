@@ -1,0 +1,80 @@
+--- a/candidate-pack/blike_calendar/database.py
++++ b/candidate-pack/blike_calendar/database.py
+@@ -55,8 +55,8 @@
+         self, requester_key: str, idempotency_key: str
+     ) -> MeetingRequest | None:
+         row = self.connection.execute(
+-            "SELECT * FROM requests WHERE idempotency_key = ? ORDER BY rowid LIMIT 1",
+-            (idempotency_key,),
++            "SELECT * FROM requests WHERE requester_key = ? AND idempotency_key = ?",
++            (requester_key, idempotency_key),
+         ).fetchone()
+         return self._request(row) if row is not None else None
+ 
+--- a/candidate-pack/blike_calendar/scheduler.py
++++ b/candidate-pack/blike_calendar/scheduler.py
+@@ -1,16 +1,17 @@
+ from __future__ import annotations
+ 
++from bisect import bisect_left, bisect_right
+ from collections.abc import Sequence
+ from datetime import datetime
+ 
+-from .models import CalendarEvent, MeetingRequest
++from .models import CalendarEvent, MeetingRequest, RequestStatus
+ from .scorer import RelevanceScorer
+ 
+ 
+ def intervals_overlap(
+     start_a: datetime, end_a: datetime, start_b: datetime, end_b: datetime
+ ) -> bool:
+-    return start_a <= end_b and start_b <= end_a
++    return start_a < end_b and start_b < end_a
+ 
+ 
+ def select_requests(
+@@ -22,4 +23,43 @@
+ 
+     Inputs are snapshots: do not mutate them or write to the database here.
+     """
+-    raise NotImplementedError("Batch selection is not implemented")
++    # Merge event intervals so one binary-search probe determines eligibility.
++    merged: list[tuple[datetime, datetime]] = []
++    for event in sorted(events, key=lambda event: (event.start, event.end)):
++        if merged and event.start <= merged[-1][1]:
++            merged[-1] = (merged[-1][0], max(merged[-1][1], event.end))
++        else:
++            merged.append((event.start, event.end))
++    blocker_starts = [start for start, _ in merged]
++    eligible = []
++    for request in requests:
++        if request.status != RequestStatus.PENDING:
++            continue
++        last = bisect_left(blocker_starts, request.end) - 1
++        if last >= 0 and merged[last][1] > request.start:
++            continue
++        eligible.append(request)
++    eligible.sort(key=lambda request: (request.end, request.start, request.request_id))
++    ends = [request.end for request in eligible]
++    best = [0] * (len(eligible) + 1)
++    predecessors = []
++    take = []
++    for index, request in enumerate(eligible):
++        # Number of earlier requests ending at or before this start.
++        predecessor = bisect_right(ends, request.start, 0, index)
++        predecessors.append(predecessor)
++        utility = 100 * int(request.business_tier) + scorer.score(request)
++        including = best[predecessor] + utility
++        take.append(including > best[index])
++        best[index + 1] = max(best[index], including)
++    chosen = []
++    prefix = len(eligible)
++    while prefix:
++        index = prefix - 1
++        if take[index]:
++            chosen.append(eligible[index])
++            prefix = predecessors[index]
++        else:
++            prefix -= 1
++    chosen.reverse()
++    return chosen
