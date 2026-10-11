@@ -1,6 +1,6 @@
 # Blike Moomberg's Calendar
 
-An independent interview practice exercise reconstructed from the supplied workshop screenshots. It is not Bloomberg's original code or an official interview assessment. The visible package layout, SQLite schema fields, request submission flow, and deterministic scorer have been closely mirrored; unseen behavior and tickets are original.
+An independent interview practice exercise. It is not Bloomberg's original code or an official interview assessment. The visible package layout, SQLite schema fields, request submission flow, and deterministic scorer have been closely mirrored; unseen behavior and tickets are original.
 
 Open **candidate-pack/** as your editor workspace and start with its README. There are exactly two deliberately planted behavioral defects and one unimplemented function. No solution is included inside the candidate pack.
 
